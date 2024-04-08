@@ -1,0 +1,540 @@
+Introduction
+
+For this project, we looked at the Austin Bikeshare Rides data, available here on Kaggle. There were two csv files as part of the data, one containing ~650k rows of bikeshare trips, and the other containing info about the actual bike stations (this csv was much smaller in size).
+In this notebook, we do most of the work relevant to our final analysis. We first merge the two csv files in one dataframe, dropping some columns. We also (separately) did a manual grouping of Austin bike stations by regions (downtown, west Austin, etc), and add this info as an extra column. Then, we proceed to do some modeling, trying to answer three questions in order, based on what we wanted to explore:
+Can we predict station usage (to improve the ability for bikeshares to supply high-use stations)?
+Can we predict trip duration?
+Can we predict the subscriber type (walk up or annual)?
+Let's get into it!
+
+keyboard_arrow_down
+Library Import
+[ ]
+ import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+import seaborn as sns
+from google.colab import drive
+
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.svm import LinearSVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import r2_score
+from sklearn.metrics import accuracy_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.tree import DecisionTreeClassifier, plot_tree
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error
+
+from google.colab import drive
+drive.mount('/content/drive')
+account_circle
+Mounted at /content/drive
+
+keyboard_arrow_down
+Creating the dataframes
+
+[ ]
+ df_1 = pd.read_csv('/content/drive/MyDrive/Austin Bikeshare Trips Data/austin_bikeshare_stations.csv')
+[ ]
+ df_2 = pd.read_csv('/content/drive/MyDrive/Austin Bikeshare Trips Data/austin_bikeshare_trips.csv')
+
+keyboard_arrow_down
+Cleaning and Organizing Data
+
+Here we do some renaming, and drop some columns.
+[ ]
+ df_2.rename(columns={'start_station_id': 'station_id'}, inplace=True)
+
+merged_df = pd.merge(df_1, df_2, on='station_id', how='inner')
+[ ]
+ merged_df = merged_df.drop(columns=['status', 'bikeid', 'checkout_time', 'end_station_id', 'end_station_name'])
+
+Grouping the merged dataframe.
+[ ]
+ merged_df['group'] = 'common value'
+Here we use the (manually) organized regions and group the stations by their region.
+[ ]
+ # Station variables
+west_austin_stations = ['Lake Austin/Enfield', 'Lake Austin Blvd/Deep Eddy', 'MoPac Pedestrian Bridge @ Veterans Drive', '5th/Campbell']
+south_austin_stations = ['Long Center @ South 1st & Riverside', 'Zilker Park West','Toomey Rd @ South Lamar', 'Riverside @ S. Lamar', 'Zilker Park', 'Sterzing at Barton Springs', 'Barton Springs Pool', 'Hollow Creek/Barton Hills', 'Barton Springs @ Kinney Ave', 'Barton Springs/Bouldin @ Palmer Auditorium', 'South 1st/Riverside @ Long Center', 'Barton Springs & Riverside', 'One Texas Center', 'South Congress & Barton Springs at the Austin American-Statesman', 'Barton Springs/Riverside', 'One Texas Center', 'South Congress @ Bouldin Creek', 'South Congress & Academy', 'South Congress & James', 'South Congress & Elizabeth', 'South Congress/Mary', 'Boardwalk West']
+east_austin_stations = ['East 7th & Pleasant Valley', 'Capital Metro HQ - East 5th at Broadway', '6th & Navasota St.','East 11th St. & San Marcos', 'East 11th St. at Victory Grill', 'Rosewood/Angelina', '11th/Salina', 'Medina & East 6th', 'Plaza Saltillo', '6th/Chalmers', 'East 4th & Chicon', 'East 6th at Robert Martinez', 'East 6th & Pedernales St.', 'East 2nd & Pedernales', 'East 5th/Broadway @ Capital Metro HQ', 'East 5th/Shady @ Eastside Bus Plaza', 'Lakeshore/Austin Hostel', 'Lakeshore/Pleasant Valley']
+campus_austin_stations = ['13th & San Antonio','Guadalupe & 21st', '17th & Guadalupe','Pease Park', '8th & Guadalupe', 'ACC - West & 12th Street','28th/Rio Grande', '26th/Nueces', 'Dean Keeton/Whitis', 'Dean Keeton/Speedway', 'Dean Keeton/Park Place', '23rd/San Jacinto @ DKR Stadium', '23rd/Pearl', '22.5/Rio Grande', 'UT West Mall @ Guadalupe', '22nd/Pearl', '21st/Guadalupe', '21st/University', '21st/Speedway @ PCL']
+downtown_austin_stations = ['3rd & West', '5th & Bowie', '5th & San Marcos','State Capitol @ 14th & Colorado','4th & Congres', '2nd & Congress','6th & Congress', 'Brazos & 6th', 'Bullock Museum @ Congress & MLK', 'Palmer Auditorium','11th & San Jacinto', 'Guadalupe & 6th', 'Rainey @ River St','16th/San Antonio', 'Trinity & 6th Street', 'ACC - Rio Grande & 12th', '13th/Trinity @ Waterloo Greenway', 'State Capitol Visitors Garage @ San Jacinto & 12th', '11th/Congress @ The Texas Capitol', 'Henderson & 9th', 'West & 6th St.', '5th/Bowie','3rd/West', 'Pfluger Bridge @ W 2nd Street', 'Nueces & 3rd', 'Republic Square', '2nd/Lavaca @ City Hall', 'Congress & Cesar Chavez', 'Rainey/Driskill', 'Rainey St @ Cummings', 'Red River/Cesar Chavez @ The Fairmont', '4th/Sabine','Convention Center / 3rd & Trinity', '4th/Congress', 'Lavaca & 6th', '6th/Congress', 'San Jacinto & 8th Street', 'Red River & 8th Street', '10th/Red River', 'State Parking Garage @ Brazos & 18th', 'Convention Center / 4th St. @ MetroRail', 'Davis at Rainey Street', '8th & Congress', 'Capitol Station / Congress & 11th', 'City Hall / Lavaca & 2nd']
+# Station mapping
+stations_mapping = {
+    'south': south_austin_stations,
+    'east': east_austin_stations,
+    'campus': campus_austin_stations,
+    'downtown': downtown_austin_stations,
+    'west': west_austin_stations
+}
+default_group = 'no group'
+merged_df['group'] = default_group
+for group, stations in stations_mapping.items():
+    merged_df['group'] = np.where(merged_df['name'].isin(stations), group, merged_df['group'])
+
+merged_df['group'] = np.where(merged_df['group'] == default_group, 'no group', merged_df['group'])
+
+Here we create a "week" column which we'll use later. You can also uncomment the below lines to create a day and hour column.
+[ ]
+ ## Create a 'week' column
+merged_df['start_time'] = pd.to_datetime(merged_df['start_time'])
+merged_df['week'] = merged_df['start_time'].dt.week
+# merged_df['day'] = merged_df['start_time'].dt.day
+# merged_df['hour'] = merged_df['start_time'].dt.hour
+account_circle
+<ipython-input-8-53ad9905fe6d>:3: FutureWarning: Series.dt.weekofyear and Series.dt.week have been deprecated. Please use Series.dt.isocalendar().week instead.
+  merged_df['week'] = merged_df['start_time'].dt.week
+We drop some more columns and do some further quick organizing/cleaning.
+[ ]
+ merged_df = merged_df.drop(columns = ['latitude', 'location', 'longitude','start_station_name', 'start_time','trip_id'])
+[ ]
+ merged_df.loc[merged_df['subscriber_type'].str.contains('annual', case=False, na=False), 'subscriber_type'] = 'annual'
+merged_df.loc[merged_df['subscriber_type'].str.contains('365', case=False, na=False), 'subscriber_type'] = 'annual'
+# Drop rows where 'subscriber_type' is not 'annual' or 'Walk-Up'
+merged_df = merged_df[merged_df['subscriber_type'].isin(['annual', 'Walk Up'])]
+merged_df.reset_index(drop=True, inplace=True)
+[ ]
+ merged_df['rides'] = merged_df.groupby('week')['group'].transform('count')
+[ ]
+ merged_df = merged_df.drop(columns= ['month', 'year'])
+Let's see how it looks like!
+[ ]
+ merged_df
+account_circle
+
+Now we must do label encoding of the categorical columns so they're more suited to feeding into a machine learning model.
+[ ]
+ #Encode subscriber type column so we can do predictions
+label_encoder = LabelEncoder()
+
+# Fit and transform the 'subscriber_type' column
+merged_df['subscriber_type_encoded'] = label_encoder.fit_transform(merged_df['subscriber_type'])
+mapping = {index: label for index, label in enumerate(label_encoder.classes_)}
+print("Mapping:", mapping)
+merged_df['regional_group_encoded'] = label_encoder.fit_transform(merged_df['group'])
+mapping = {index: label for index, label in enumerate(label_encoder.classes_)}
+print("Mapping:", mapping)
+account_circle
+Mapping: {0: 'Walk Up', 1: 'annual'}
+Mapping: {0: 'campus', 1: 'downtown', 2: 'east', 3: 'no group', 4: 'south', 5: 'west'}
+[ ]
+ merged_df = merged_df.drop(columns= ['subscriber_type', 'name', 'group'])
+[ ]
+ merged_df
+account_circle
+
+
+keyboard_arrow_down
+Double checking
+Let's quickly see the characteristics of our dataframe once again to make sure everything looks right.
+[ ]
+ merged_df["regional_group_encoded"].nunique()
+account_circle
+6
+[ ]
+ max_value = merged_df['rides'].max()
+min_value = merged_df['rides'].min()
+median_value = merged_df['rides'].median()
+
+print("Maximum value:", max_value)
+print("Minimum value:", min_value)
+print("Median value:", median_value)
+account_circle
+Maximum value: 27597
+Minimum value: 2324
+Median value: 9018.0
+
+keyboard_arrow_down
+Graphing
+We'll first plot a chart showing how the rides of each regional group (total) compare throughout the year (week-by-week).
+Note that downtown Austin has relatively more stations than the other regions, so you'd expect it to overall have a larger ride share.
+[ ]
+ group_weekly_rides = merged_df.groupby(['regional_group_encoded', 'week'])['rides'].sum().reset_index()
+
+# Pivot the DataFrame to have 'group' as columns and 'week' as index
+pivot_df = group_weekly_rides.pivot(index='week', columns='regional_group_encoded', values='rides')
+
+# Plot the weekly ride amounts for each group
+pivot_df.plot(kind='line', marker='o', figsize=(10, 6))
+
+# Add labels and title
+plt.xlabel('Week')
+plt.ylabel('Ride Amounts')
+plt.title('Weekly Ride Amounts for Each Group')
+plt.legend(title='Regional Group')
+
+# Show the plot
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+account_circle
+
+Comments
+
+So from this plot we can see that group 1 (which is downtown), has first of all the most number of rides per week throughout there year (every single data point!), and secondly has a huge evident spike near the 12th week or so. This is interesting - we wonder why it's so?
+Note: We said that downtown has more stations overall, but the huge spike is still very significant!
+March is springtime in Austin, Texas, and the ~12th week coincides with spring break in universities. That could be one of the reasons. The second major reason could be that Austin hosts several major events in March, most prominently SXSW (South by Southwest) which brings together top professionals in film, music and interactive media.
+Other major events in this time of the year include Rodeo Austin, Old Settlers Music Festival, etc. More info is available at austintexas.org. March is also springtime in Austin, which corresponds to good weather (the most ideal throughout the year, actually) which attracts lots of tourism in Austin. Visitors might use the bikeshare system as a convenient way to get around and explore.
+The good weather explanation corresponds with the smaller spike observed in the Fall (week ~45 of the year), when the weather is again arguably more pleasant than other times of the year.
+It's also worth noting that the downtown spikes aren't isolated - all of the regional groups spike when the downtown usage spikes, though by a significantly less factor!
+
+keyboard_arrow_down
+More prep
+Now let's proceed to set up for prediction, where we'll first see if we can predict usage of a station based on the other variables (this might not be a good candidate for prediction because there's not so many unique values of rides per week). Nevertheless, let's go ahead and see if group_weekly_rides seems to be a good candidate for this prediction, or not.
+[ ]
+ group_weekly_rides.head()
+account_circle
+
+It doesn't, though it's good for getting a visual picture.
+There are too few features in this dataframe to make it useful for predicting too much.
+So, let us see if we can go back to using merged_df.
+[ ]
+ merged_df.nunique()
+account_circle
+station_id                   71
+duration_minutes           1261
+week                         53
+rides                        53
+subscriber_type_encoded       2
+regional_group_encoded        6
+dtype: int64
+How many total values for "rides" are there?
+[ ]
+ merged_df["rides"].nunique()
+account_circle
+53
+Even merged_df might not be a good candidate for a machine learning model to learn from, because there's just 53 total unique values for total number of rides for a station anyway. But, let's proceed and see if we can try it out (because there are of course a huge number of rows).
+[ ]
+ pivot_df = merged_df.pivot_table(index='week', columns='regional_group_encoded', values=['rides', 'duration_minutes', 'subscriber_type_encoded'], aggfunc='mean')
+
+[ ]
+ pivot_df
+account_circle
+
+
+keyboard_arrow_down
+Prediction Models
+
+As we decided, let's first see if we can get anywhere reasonable trying to predict station usage based on the other variables.
+[ ]
+ merged_df
+account_circle
+
+[ ]
+ from sklearn.model_selection import train_test_split
+
+X = merged_df[['subscriber_type_encoded', 'rides', 'duration_minutes', 'week']]
+y = merged_df['regional_group_encoded']
+
+# 60% will be used for training
+train_df, test_valid_df = train_test_split(merged_df, train_size=0.6)
+
+# Split the test set into a validation set and a validation set
+valid_df, test_df = train_test_split(test_valid_df, test_size=0.5)
+
+# Create X and y columns
+y_train = train_df.pop('rides')
+X_train = train_df
+
+y_valid = valid_df.pop('rides')
+X_valid = valid_df
+
+y_test = test_df.pop('rides')
+X_test = test_df
+
+print(f'Training set rows: {X_train.shape[0]}')
+print(f'Validation set rows: {X_valid.shape[0]}')
+print(f'Testing set rows: {X_test.shape[0]}')
+account_circle
+Training set rows: 264714
+Validation set rows: 88238
+Testing set rows: 88239
+
+keyboard_arrow_down
+Linear Regression 1
+[ ]
+ log_reg = LinearRegression()  # We are using linear regression. Ignore the fact that it's named "log reg"
+log_reg.fit(X_train, y_train)
+y_preds = log_reg.predict(X_valid)
+log_reg.coef_
+account_circle
+array([-1.35820443e-01, -1.13030501e+00, -1.50880216e+02, -9.91061453e+02,
+       -1.18958147e+02])
+Plot the results of the model.
+[ ]
+ import matplotlib.pyplot as plt
+
+# Predictions on the training set
+y_train_preds = log_reg.predict(X_train)
+
+# Plotting the actual vs predicted values for the training set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_train, y_train_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Training Set")
+plt.show()
+
+# Predictions on the validation set
+y_valid_preds = log_reg.predict(X_valid)
+
+# Plotting the actual vs predicted values for the validation set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_valid, y_valid_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Validation Set")
+plt.show()
+account_circle
+
+Yes, it doesn't seem like the linear regression model does a very good job of predicting - though it seems to get the general trend.
+The graph looks like this probably because there's just ~55 total values to predict in the first place, and we've divided the dataset into three sets anyhow. Also, if we had an instance of each station within the training set, we might just encourage the model to eventually "realize" that each unique station for each unique week just has one exact value.
+
+keyboard_arrow_down
+Decision Tree 1
+We use a Decision Tree Regressor now.
+[ ]
+ from sklearn.tree import DecisionTreeRegressor
+
+parameters = {'max_depth':[5, 10, 30], 'min_samples_split':[2, 5, 25]}
+dtc = DecisionTreeRegressor()
+grid_search = GridSearchCV(estimator=dtc, param_grid=parameters)
+grid_search.fit(X_train, y_train)
+
+best_params = grid_search.best_params_
+print("Best Hyperparameters:", best_params)
+
+dtc_best = DecisionTreeRegressor(**best_params)
+dtc_best.fit(X_train, y_train)
+y_pred = dtc_best.predict(X_valid)
+account_circle
+Best Hyperparameters: {'max_depth': 10, 'min_samples_split': 2}
+[ ]
+ # Predictions on the validation set
+y_valid_preds = dtc_best.predict(X_valid)
+
+# Plotting the actual vs predicted values for the validation set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_valid, y_valid_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Validation Set")
+plt.show()
+account_circle
+
+Comments
+
+Indeed, the Decision Tree Regressor (unaptly named "dtc" in the code which we usually use for "classifier") does ultimately decide to ask the exact right questions to itself which lead to it finding the exact "rides" value for each station - and it gets perfect predictions! This is not what we want, of course. So, instead of using these models for predicting something they're not able to predict with the dataset at hand, let's use them to predict a more diverse set of values that we have, and which could potentially be more interesting - duration_minutes!
+
+keyboard_arrow_down
+Predicting Ride Duration
+Can we predict how long a person will ride his/her bike based on where he/she got their bike from, the region, the time of year (week), etc.?
+Let's use the linear regressor first for this and see what we get. We'll use the same merged_df as earlier to demonstrate how good (or not) these models are at predicting some things based on what dataset we've got, versus other things.
+[ ]
+ # 60% will be used for training
+train_df, test_valid_df = train_test_split(merged_df, train_size=0.6)
+
+# Split the test set into a validation set and a validation set
+valid_df, test_df = train_test_split(test_valid_df, test_size=0.5)
+
+# Create X and y columns
+y_train = train_df.pop('duration_minutes')
+X_train = train_df
+
+y_valid = valid_df.pop('duration_minutes')
+X_valid = valid_df
+
+y_test = test_df.pop('duration_minutes')
+X_test = test_df
+
+print(f'Training set rows: {X_train.shape[0]}')
+print(f'Validation set rows: {X_valid.shape[0]}')
+print(f'Testing set rows: {X_test.shape[0]}')
+account_circle
+Training set rows: 264714
+Validation set rows: 88238
+Testing set rows: 88239
+[ ]
+ y_train
+account_circle
+67659     23
+350615    27
+57219     21
+436594     9
+143780    17
+          ..
+37340      0
+52637     17
+117844    22
+396642    41
+186885    31
+Name: duration_minutes, Length: 264714, dtype: int64
+[ ]
+ X_test.head()
+account_circle
+
+
+keyboard_arrow_down
+Linear Regression 2
+Using a linear regression as baseline model to predict ride duration.
+[ ]
+ log_reg = LinearRegression()
+log_reg.fit(X_train, y_train)
+y_preds = log_reg.predict(X_valid)
+log_reg.coef_
+account_circle
+array([ 3.04656784e-03, -3.20327895e-02, -3.81838729e-04, -2.96879177e+01,
+       -6.41489057e-02])
+[ ]
+ # Predictions on the training set
+y_train_preds = log_reg.predict(X_train)
+
+# Plotting the actual vs predicted values for the training set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_train, y_train_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Training Set")
+plt.show()
+
+# Predictions on the validation set
+y_valid_preds = log_reg.predict(X_valid)
+
+# Plotting the actual vs predicted values for the validation set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_valid, y_valid_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Validation Set")
+plt.show()
+account_circle
+
+Not such a good one. Let's see if the DTR does any better.
+
+keyboard_arrow_down
+Decision Tree Regressor 2
+Using DTR model for ride duration prediction.
+[ ]
+ from sklearn.tree import DecisionTreeRegressor
+
+parameters = {'max_depth':[30,100,200], 'min_samples_split':[2, 5, 25, 50]}
+# dtc = DecisionTreeClassifier(class_weight='balanced')
+dtc = DecisionTreeRegressor()#class_weight='balanced')
+grid_search = GridSearchCV(estimator=dtc, param_grid=parameters)#,scoring='accuracy')
+grid_search.fit(X_train, y_train)
+
+best_params = grid_search.best_params_
+print("Best Hyperparameters:", best_params)
+
+dtc_best = DecisionTreeRegressor(**best_params)
+dtc_best.fit(X_train, y_train)
+y_pred = dtc_best.predict(X_valid)
+
+# conf_matrix = confusion_matrix(y_valid, y_pred, normalize='true')
+# disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=dtc_best.classes_)
+# disp.plot(cmap='Blues', values_format='.2f')
+
+# plt.figure(figsize=(30, 10))
+# plot_tree(dtc_best, feature_names=X_test.columns)
+# Predictions on the validation set
+y_valid_preds = dtc_best.predict(X_valid)
+
+# Plotting the actual vs predicted values for the validation set
+plt.figure(figsize=(8, 6))
+plt.scatter(y_valid, y_valid_preds, alpha=0.5)
+plt.xlabel("Actual")
+plt.ylabel("Predicted")
+plt.title("Actual vs Predicted values for Validation Set")
+plt.show()
+account_circle
+
+This isn't working very well either! It makes a bit of sense, though, because the duration of a particular trip might actually not be very related to the time of year, total number of rides from a particular station, etc.
+Now let's try something that's more suited for a classification task! Let's see if based on ride duration and other factors, we can predict whether a bikeshare user will be a "walk up" or "annual". This is represented in the dataset as "0" vs "1" for subscriber_type.
+
+keyboard_arrow_down
+Predicting Subscriber Type
+
+Let's use a classification model to see if we can predict subscriber type.
+This time, we'll also use 80% of the data for training, given that even with 10% for testing and 10% validation, we still have many thousands of rows!
+[ ]
+ # 60% will be used for training
+train_df, test_valid_df = train_test_split(merged_df, train_size=0.8)
+
+# Split the test set into a validation set and a validation set
+valid_df, test_df = train_test_split(test_valid_df, test_size=0.5)
+
+# Create X and y columns
+y_train = train_df.pop('subscriber_type_encoded')
+X_train = train_df
+
+y_valid = valid_df.pop('subscriber_type_encoded')
+X_valid = valid_df
+
+y_test = test_df.pop('subscriber_type_encoded')
+X_test = test_df
+
+print(f'Training set rows: {X_train.shape[0]}')
+print(f'Validation set rows: {X_valid.shape[0]}')
+print(f'Testing set rows: {X_test.shape[0]}')
+account_circle
+Training set rows: 352952
+Validation set rows: 44119
+Testing set rows: 44120
+[ ]
+ merged_df.head()
+account_circle
+
+
+keyboard_arrow_down
+Decision Tree Classifier
+[ ]
+ dtc = DecisionTreeClassifier(class_weight='balanced')
+parameters = {'max_depth':[2, 5, 10], 'min_samples_split':[2, 5, 8, 10]}
+# Perform grid search to find the best hyperparameters
+grid_search = GridSearchCV(estimator=dtc, param_grid=parameters, scoring='accuracy')
+grid_search.fit(X_train, y_train)
+
+# Get the best hyperparameters
+best_params = grid_search.best_params_
+print("Best Hyperparameters:", best_params)
+
+# Create a decision tree classifier with the best hyperparameters
+dtc_best = DecisionTreeClassifier(class_weight='balanced', **best_params)
+dtc_best.fit(X_train, y_train)
+
+# Make predictions on the validation set
+y_pred = dtc_best.predict(X_valid)
+
+# Plot the confusion matrix
+conf_matrix = confusion_matrix(y_valid, y_pred, normalize='true')
+disp = ConfusionMatrixDisplay(confusion_matrix=conf_matrix, display_labels=dtc_best.classes_)
+disp.plot(cmap='Blues', values_format='.2f')
+
+# Plot the decision tree
+plt.figure(figsize=(20, 10))
+plot_tree(dtc_best, feature_names=['rides', 'regional_group_encoded', 'duration_minutes', 'week', 'station_id'], filled=True)
+plt.show()
+account_circle
+
+This looks like a good model! Let's also get an AUROC score to test its discrimination capacity:
+[ ]
+ from sklearn.metrics import roc_auc_score
+y_probs = dtc_best.predict_proba(X_test)[:, 1]
+auroc = roc_auc_score(y_test, y_probs)
+auroc
+account_circle
+0.8700408345426698
+Wrapping Up
+
+So we had a fine ride there! To recap, we first did our cleaning/organizing of the data, and then tried answering:
+Can we predict station usage (to improve the ability for bikeshares to supply high-use stations)?
+Can we predict trip duration?
+Can we predict the subscriber type (walk up or annual)?
+We used different models for each question. It's clear that based on how our dataset is structured, neither linear regression nor decision tree regression are good in predicting station usage. They can't predict trip duration well either, but that has to do with the fact that it isn't too related with the other variables anyhow. Both of these could be avenues for future research.
+Finally, we had great success doing a decision tree classification for predicting subscriber type, because as we saw in our initial exploration, there are significant differences between walk up and annual subscribers. This enables our DTC model to get a high AUROC score, that signifies its discrimination capacity between the two classes.
+In future, we could proceed with more feature engineering and try to continue setting up a prediction model for station usage (probably by days rather than weeks, because there's more days every year than weeks, giving more data for our model to learn from).
