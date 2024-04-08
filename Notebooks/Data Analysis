@@ -1,0 +1,288 @@
+Introduction
+
+For this project, we looked at the Austin Bikeshare Rides data, available here on Kaggle. There were two csv files as part of the data, one containing ~650k rows of bikeshare trips, and the other containing info about the actual bike stations (this csv was much smaller in size).
+In this notebook, we do most of the data analysis. First we loaded the two csv files, got rid of missing values, and dropped some unwanted columns. We then computed averages such as: Top 5 stations, average lenth of trip over the whole data set and top 5 stations, average user type, average rides per hour, and average rides per day of the week. We then graphed the data to visualize it.
+Let's get into it!
+
+keyboard_arrow_down
+Library Import
+[ ]
+ import pandas as pd
+import numpy as np
+from matplotlib import pyplot as plt
+from google.colab import drive
+
+
+from google.colab import drive
+drive.mount('/content/drive')
+output
+Mounted at /content/drive
+
+keyboard_arrow_down
+Loading and Inspecting the Data
+[ ]
+ # Data frame 1
+df_1 = pd.read_csv('/content/drive/MyDrive/austin_bikeshare_stations.csv')
+[ ]
+ # Data frame 2
+df_2 = pd.read_csv('/content/drive/MyDrive/austin_bikeshare_trips.csv')
+[ ]
+ df_1.shape
+output
+(72, 6)
+[ ]
+ df_1.isna().sum()
+output
+latitude      0
+location      0
+longitude     0
+name          0
+station_id    0
+status        0
+dtype: int64
+[ ]
+ df_2.shape
+output
+(649231, 12)
+[ ]
+ df_2.dtypes # need to hot encode objects to float
+output
+bikeid                float64
+checkout_time          object
+duration_minutes        int64
+end_station_id        float64
+end_station_name       object
+month                 float64
+start_station_id      float64
+start_station_name     object
+start_time             object
+subscriber_type        object
+trip_id                 int64
+year                  float64
+dtype: object
+[ ]
+ # Drop NaN values from 'start_station_id' column in df_2
+df_2.dropna(subset=['start_station_id'], inplace=True)
+
+
+keyboard_arrow_down
+Cleaning and Organizing the Data
+[ ]
+ df_2.isna().sum() # missing insignificant values, columns 'end_station_id', 'month', 'start_station_id', and 'year' can be dropped.
+output
+bikeid                  700
+checkout_time             0
+duration_minutes          0
+end_station_id        15090
+end_station_name          0
+month                 30742
+start_station_id          0
+start_station_name        0
+start_time                0
+subscriber_type        2077
+trip_id                   0
+year                  30742
+hour                      0
+day_of_week               0
+dtype: int64
+[ ]
+ df_2 = df_2.drop(columns=['end_station_id', 'month', 'start_station_id', 'year', 'trip_id', 'bikeid', 'checkout_time']) # dropped high missing value columns, and unimportant columns
+We wanted to find the top 5 high usage stations.
+[ ]
+ df_2['year'] = df_2['start_time'].dt.year
+df_2['time_of_year'] = df_2['start_time'].dt.strftime('%m-%d')
+
+# Group by 'station' and 'time_of_year'
+grouped = df_2.groupby(['start_station_name', 'time_of_year']).size().reset_index(name='ride_count')
+top_5_stations = grouped.groupby('start_station_name')['ride_count'].sum().nlargest(5).index
+
+top_5_times_of_year = grouped[grouped['start_station_name'].isin(top_5_stations)].groupby('start_station_name').apply(lambda x: x.loc[x['ride_count'].idxmax()])
+
+print("Top 5 most popular stations:")
+print(top_5_times_of_year[['start_station_name', 'time_of_year']])
+output
+Top 5 most popular stations:
+                                start_station_name time_of_year
+start_station_name                                             
+2nd & Congress                      2nd & Congress        03-14
+4th & Congress                      4th & Congress        03-14
+5th & Bowie                            5th & Bowie        03-14
+City Hall / Lavaca & 2nd  City Hall / Lavaca & 2nd        03-15
+Riverside @ S. Lamar          Riverside @ S. Lamar        03-15
+Average length of trip, using duration_minutes column.
+[ ]
+ average_trip_length_all = df_2['duration_minutes'].mean()
+std_dev_whole_df = df_2['duration_minutes'].std()
+
+print("Average length of trip over the whole DataFrame:", average_trip_length_all)
+print("Standard deviation of trip length over the whole DataFrame:", std_dev_whole_df)
+
+output
+Average length of trip over the whole DataFrame: 29.020216125295544
+Standard deviation of trip length over the whole DataFrame: 87.78050465696646
+Average length of trip of top 5 stations, to see if there is a correlation between the two variable, that could then help us predict.
+[ ]
+ # Filter DataFrame for the top 5 stations
+df_top_5_stations = df_2[df_2['start_station_name'].isin(top_5_stations)]
+
+average_trip_length_top_5_stations = df_top_5_stations['duration_minutes'].mean()
+std_dev_top_5 = df_top_5_stations['duration_minutes'].std()
+
+
+print("Average length of trip for the top 5 stations:", average_trip_length_top_5_stations)
+Looks like there is a correlation, but lets look into other variables. Next we will be looking at average length of trip for a user type, walk-up vs annual.
+[ ]
+ # Find the most used subscriber type
+most_used_subscriber_type = df_2['subscriber_type'].value_counts().idxmax()
+
+# Filter the DataFrame for the most used subscriber type
+most_used_subscriber_df = df_2[df_2['subscriber_type'] == most_used_subscriber_type]
+
+# Calculate the average and standard deviation of 'duration_time' for the most used subscriber type
+avg_duration_most_used = most_used_subscriber_df['duration_minutes'].mean()
+std_dev_most_used = most_used_subscriber_df['duration_minutes'].std()
+
+print("Average duration time for the most used subscriber type:", avg_duration_most_used)
+output
+Average duration time for the most used subscriber type: 40.41518714098413
+It differs from the average length of trip over the whole data frame, so this could mean that subscriber type could help us better predict the usage of a station(number of rides).
+[ ]
+ ## rename all walk-up to be uniform, along with annual subscribertypes
+df_2['subscriber_type'].value_counts()
+output
+subscriber_type
+Walk Up                                          276102
+Local365                                         125755
+24-Hour Kiosk (Austin B-cycle)                    98971
+Local30                                           36871
+Annual Membership (Austin B-cycle)                29090
+Weekender                                         24557
+Explorer                                           8106
+Local365 ($80 plus tax)                            4005
+Founding Member                                    3510
+7-Day                                              3000
+Founding Member (Austin B-cycle)                   2694
+Local365+Guest Pass                                2567
+7-Day Membership (Austin B-cycle)                  2525
+Semester Membership (Austin B-cycle)               2324
+Semester Membership                                 878
+Local30 ($11 plus tax)                              840
+Annual                                              799
+24-Hour-Online (Austin B-cycle)                     669
+Weekender ($15 plus tax)                            566
+Try Before You Buy Special                          520
+RideScout Single Ride                               382
+Annual (San Antonio B-cycle)                        366
+Annual Membership                                   354
+Annual Member                                       326
+Annual Member (Houston B-cycle)                     278
+Annual Membership (Fort Worth Bike Sharing)         251
+ACL Weekend Pass Special (Austin B-cycle)           238
+Annual (Denver B-cycle)                             226
+Explorer ($8 plus tax)                              186
+Annual (Madison B-cycle)                            144
+Annual (Broward B-cycle)                            140
+Annual Plus                                         132
+Annual (Boulder B-cycle)                            124
+Annual (Denver Bike Sharing)                        123
+Local365 Youth with helmet (age 13-17 riders)        97
+Republic Rider (Annual)                              73
+Annual Membership (GREENbike)                        67
+Annual (Cincy Red Bike)                              50
+Annual (Kansas City B-cycle)                         48
+FunFunFun Fest 3 Day Pass                            27
+Annual (Nashville B-cycle)                           25
+Annual Membership (Charlotte B-cycle)                20
+Republic Rider                                       17
+Annual Pass                                          15
+Membership: pay once  one-year commitment            13
+RESTRICTED                                           10
+Denver B-cycle Founder                               10
+Annual Membership (Indy - Pacers Bikeshare )          8
+PROHIBITED                                            8
+Local365 Youth (age 13-17 riders)                     3
+Annual (Omaha B-cycle)                                3
+Name: count, dtype: int64
+Lets group together alike subscriber types.
+[ ]
+ df_2.loc[df_2['subscriber_type'].str.contains('annual', case=False, na=False), 'subscriber_type'] = 'annual'
+df_2.loc[df_2['subscriber_type'].str.contains('365', case=False, na=False), 'subscriber_type'] = 'annual'
+
+df_2['subscriber_type'].value_counts()
+output
+subscriber_type
+Walk Up                                      276102
+annual                                       165089
+24-Hour Kiosk (Austin B-cycle)                98971
+Local30                                       36871
+Weekender                                     24557
+Explorer                                       8106
+Founding Member                                3510
+7-Day                                          3000
+Founding Member (Austin B-cycle)               2694
+7-Day Membership (Austin B-cycle)              2525
+Semester Membership (Austin B-cycle)           2324
+Semester Membership                             878
+Local30 ($11 plus tax)                          840
+24-Hour-Online (Austin B-cycle)                 669
+Weekender ($15 plus tax)                        566
+Try Before You Buy Special                      520
+RideScout Single Ride                           382
+ACL Weekend Pass Special (Austin B-cycle)       238
+Explorer ($8 plus tax)                          186
+FunFunFun Fest 3 Day Pass                        27
+Republic Rider                                   17
+Membership: pay once  one-year commitment        13
+RESTRICTED                                       10
+Denver B-cycle Founder                           10
+PROHIBITED                                        8
+Name: count, dtype: int64
+We can see that majority of the rides are associated with walk-up or annual type, for predicting, we will be focusing on just those two subscriber types.
+
+keyboard_arrow_down
+Graphing
+[ ]
+ df_2['start_time'] = pd.to_datetime(df_2['start_time'])
+
+df_2['hour'] = df_2['start_time'].dt.hour
+
+# Plot the histogram
+plt.figure(figsize=(10, 6))
+plt.hist(df_2['hour'], bins=24, edgecolor='black', alpha=0.7)
+plt.title('Spread of Rides Throughout a Day')
+plt.xlabel('Hour')
+plt.ylabel('Number of Rides')
+plt.xticks(range(0, 24))
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+output
+
+Above is a graph of the spread of bike usage across hours of the day. We see the high usage hours are hours 12-17, with low usage hours of 0-6.
+[ ]
+ df_2['day_of_week'] = df_2['start_time'].dt.dayofweek
+
+plt.figure(figsize=(10, 6))
+plt.hist(df_2['day_of_week'], bins=7, edgecolor='black', alpha=0.7)
+plt.title('Spread of Rides Throughout the Week')
+plt.xlabel('Day of the Week')
+plt.ylabel('Number of Rides')
+plt.xticks(range(7), ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'])
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+plt.show()
+output
+
+Above is a graph of the spread of bike usage across days of the week. We can see that the weekends get more usage than the week days.
+[ ]
+ plt.hist(df_2["duration_minutes"], range=(0,60))
+output
+
+Above is the spread of the length of trips, using the 'duration_minutes' column. Remember that the Average bike ride was 29.02. Lets look at the median to make sure the graph represents the data correctly.
+[ ]
+ df_2["duration_minutes"].median()
+output
+14.0
+This adds up!
+
+keyboard_arrow_down
+Conclusion
+From the data analysis, we can see that variables like day of the week, hour of the day, subscriber type, and length of trip have an effect on bikeshare usage. In the next notebook we will merge the two data sets, and use the variables accessed in this notebook, to predict bikeshare usage (# of rides).
